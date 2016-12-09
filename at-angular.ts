@@ -1,5 +1,3 @@
-'use strict';
-
 const directiveProperties: string[] = [
     'compile',
     'controller',
@@ -23,6 +21,45 @@ export interface IClassAnnotationDecorator {
     (t: any, key: string, index: number): void;
 }
 
+function extend(dst) {
+    return baseExtend(dst, [].slice.call(arguments, 1), false);
+}
+
+
+function baseExtend(dst, objs, deep) {
+    for (var i = 0, ii = objs.length; i < ii; ++i) {
+        var obj = objs[i];
+        if (!angular.isObject(obj) && !angular.isFunction(obj)) continue;
+        var keys = Object.keys(obj);
+        for (var j = 0, jj = keys.length; j < jj; j++) {
+            var key = keys[j];
+            var descriptor = Object.getOwnPropertyDescriptor(obj, key);
+            if (key !== 'prototype' && descriptor && (descriptor.writable || descriptor.configurable || descriptor.enumerable || descriptor.get || descriptor.set)) {
+                Object.defineProperty(dst, key, descriptor);
+            } else {
+                var src = obj[key];
+                if (deep && angular.isObject(src)) {
+                    if (isDate(src)) {
+                        dst[key] = new Date(src.valueOf());
+                    } else if (angular.isRegExp(src)) {
+                        dst[key] = new RegExp(src);
+                    } else if (src.nodeName) {
+                        dst[key] = src.cloneNode(true);
+                    } else if (angular.isElement(src)) {
+                        dst[key] = src.clone();
+                    } else {
+                        if (!angular.isObject(dst[key])) dst[key] = angular.isArray(src) ? [] : {};
+                        baseExtend(dst[key], [src], true);
+                    }
+                } else {
+                    dst[key] = src;
+                }
+            }
+        }
+    }
+    return dst;
+}
+
 function instantiate(moduleName: string, name: string, mode: string): IClassAnnotationDecorator {
     return (target: any): void => {
         angular.module(moduleName)[mode](name, target);
@@ -31,7 +68,14 @@ function instantiate(moduleName: string, name: string, mode: string): IClassAnno
 
 export function attachInjects(target: any, ...args: any[]): any {
     (target.$inject || []).forEach((item: string, index: number) => {
-        target.prototype[(item.charAt(0) === '$' ? '$' : '$$') + item] = args[index];
+        target.prototype['$' + item] = args[index];
+    });
+    return target;
+}
+
+export function attachStaticInjects(target: any, ...args: any[]): any {
+    (target.$staticInject || []).forEach((item: string, index: number) => {
+        target['$' + item] = args[index];
     });
     return target;
 }
@@ -40,7 +84,7 @@ export interface IInjectAnnotation {
     (...args: any[]): IClassAnnotationDecorator;
 }
 
-export function inject(...args: string[]): at.IClassAnnotationDecorator {
+export function inject(...args: string[]): IClassAnnotationDecorator {
     return (target: any, key?: string, index?: number): void => {
         if (angular.isNumber(index)) {
             target.$inject = target.$inject || [];
@@ -51,11 +95,22 @@ export function inject(...args: string[]): at.IClassAnnotationDecorator {
     };
 }
 
+export function staticInject(...args: string[]): IClassAnnotationDecorator {
+    return (target: any, key?: string, index?: number): void => {
+        if (angular.isNumber(index)) {
+            target.$staticInject = target.$staticInject || [];
+            target.$staticInject[index] = args[0];
+        } else {
+            target.$staticInject = args;
+        }
+    };
+}
+
 export interface IServiceAnnotation {
     (moduleName: string, serviceName: string): IClassAnnotationDecorator;
 }
 
-export function service(moduleName: string, serviceName: string): at.IClassAnnotationDecorator {
+export function service(moduleName: string, serviceName: string): IClassAnnotationDecorator {
     return instantiate(moduleName, serviceName, 'service');
 }
 
@@ -63,7 +118,7 @@ export interface IControllerAnnotation {
     (moduleName: string, ctrlName: string): IClassAnnotationDecorator;
 }
 
-export function controller(moduleName: string, ctrlName: string): at.IClassAnnotationDecorator {
+export function controller(moduleName: string, ctrlName: string): IClassAnnotationDecorator {
     return instantiate(moduleName, ctrlName, 'controller');
 }
 
@@ -71,7 +126,7 @@ export interface IDirectiveAnnotation {
     (moduleName: string, directiveName: string): IClassAnnotationDecorator;
 }
 
-export function directive(moduleName: string, directiveName: string): at.IClassAnnotationDecorator {
+export function directive(moduleName: string, directiveName: string): IClassAnnotationDecorator {
     return (target: any): void => {
         let config: angular.IDirective;
         const ctrlName: string = angular.isString(target.controller) ? target.controller.split(' ').shift() : null;
@@ -95,10 +150,10 @@ export interface IClassFactoryAnnotation {
     (moduleName: string, className: string): IClassAnnotationDecorator;
 }
 
-export function classFactory(moduleName: string, className: string): at.IClassAnnotationDecorator {
+export function classFactory(moduleName: string, className: string): IClassAnnotationDecorator {
     return (target: any): void => {
         function factory(...args: any[]): any {
-            return at.attachInjects(target, ...args);
+            return attachInjects(target, ...args);
         }
         /* istanbul ignore else */
         if (target.$inject && target.$inject.length > 0) {
@@ -114,7 +169,7 @@ type ResourceService = angular.resource.IResourceService;
 
 /* istanbul ignore next */
 function combineResource(instance: any, model?: any): void {
-    angular.extend(instance, new instance.$_Resource(model));
+    extend(instance, new instance.$_Resource(model));
 }
 
 /* istanbul ignore next */
@@ -152,15 +207,21 @@ export function resource(moduleName: string, className: string): IClassAnnotatio
     return (target: any): void => {
         function resourceClassFactory($resource: ResourceService, ...args: any[]): any {
             const newResource: ResourceClass = $resource(target.url, target.params, target.actions, target.options);
-            return attachInjects(angular.extend(newResource, angular.extend(target, newResource, {
-                prototype: angular.extend(newResource.prototype, angular.extend(target.prototype, {
+            attachInjects(extend(newResource, extend(target, newResource, {
+                prototype: extend(newResource.prototype, extend(target.prototype, {
                     /* tslint:disable:variable-name */
                     $_Resource: newResource
                     /* tslint:enable:variable-name */
                 }))
             })), ...args);
+            var oldProto = newResource.prototype;
+            newResource = target;
+            newResource.prototype = oldProto;
+            return newResource;
         }
-        resourceClassFactory.$inject = (['$resource']).concat(target.$inject /* istanbul ignore next */ || []);
+        resourceClassFactory.$inject = (['$resource'])
+            .concat(target.$inject /* istanbul ignore next */ || []);
+        //.concat(target.$staticInject /* istanbul ignore next */ || []);
         angular.module(moduleName).factory(className, resourceClassFactory);
     };
 }
