@@ -150,6 +150,7 @@ export function classFactory(): IClassAnnotationDecorator {
         let factory = <injectable>function (...args: any[]): any {
             return attachInjects(target, ...args);
         }
+        factory.prototype = target.prototype;
         /* istanbul ignore else */
         if (target.$inject && target.$inject.length > 0) {
             factory.$inject = target.$inject.slice(0);
