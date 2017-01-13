@@ -1,5 +1,3 @@
-declare var angular;
-
 const directiveProperties: string[] = [
     'compile',
     'controller',
@@ -27,9 +25,10 @@ const componentProperties: string[] = [
     'transclude'
 ];
 
+interface injectable { (): any; $inject: Array<any>; }
 
-function extend(dst) {
-    return baseExtend(dst, [].slice.call(arguments, 1), false);
+function extend(dst, ...args) {
+    return baseExtend(dst, args, false);
 }
 
 
@@ -84,9 +83,6 @@ export function attachInjects(target: any, ...args: any[]): any {
     (target.$inject || []).forEach((item: string, index: number) => {
         target.prototype['$' + item] = args[index];
     });
-    (target.$staticInject || []).forEach((item: string, index: number) => {
-        target.prototype.constructor['$' + item] = args[injectSize + index];
-    });
     return target;
 }
 
@@ -103,33 +99,6 @@ export function inject(...args: string[]): IClassAnnotationDecorator {
             target.$inject = args;
         }
     };
-}
-
-export function staticInject(...args: string[]): IClassAnnotationDecorator {
-    return (target: any, key?: string, index?: number): void => {
-        if (angular.isNumber(index)) {
-            target.$staticInject = target.$staticInject || [];
-            target.$staticInject[index] = args[0];
-        } else {
-            target.$staticInject = args;
-        }
-    };
-}
-
-export interface IServiceAnnotation {
-    (moduleName: string, serviceName: string): IClassAnnotationDecorator;
-}
-
-export function service(moduleName: string, serviceName: string): IClassAnnotationDecorator {
-    return instantiate(moduleName, serviceName, 'service');
-}
-
-export interface IControllerAnnotation {
-    (moduleName: string, ctrlName: string): IClassAnnotationDecorator;
-}
-
-export function controller(moduleName: string, ctrlName: string): IClassAnnotationDecorator {
-    return instantiate(moduleName, ctrlName, 'controller');
 }
 
 export interface IDirectiveAnnotation {
@@ -176,10 +145,9 @@ export interface IClassFactoryAnnotation {
 
 export function classFactory(): IClassAnnotationDecorator {
     return (target: any): any => {
-        function factory(...args: any[]): any {
+        var factory = <injectable>function (...args: any[]): any {
             return attachInjects(target, ...args);
         }
-        factory.prototype = target.prototype;
         /* istanbul ignore else */
         if (target.$inject && target.$inject.length > 0) {
             factory.$inject = target.$inject.slice(0);
@@ -189,17 +157,6 @@ export function classFactory(): IClassAnnotationDecorator {
     };
 }
 
-export function filter(moduleName: string, filterName: string): IClassAnnotationDecorator {
-    return instantiate(moduleName, filterName, 'filter');
-}
-
-export function config(moduleName: string): IClassAnnotationDecorator {
-    return instantiate(moduleName, null, 'config');
-}
-
-export function run(moduleName: string): IClassAnnotationDecorator {
-    return instantiate(moduleName, null, 'run');
-}
 /* istanbul ignore next */
 type ResourceClass = angular.resource.IResourceClass<any>;
 type ResourceArray = angular.resource.IResourceArray<any>;
@@ -215,7 +172,7 @@ export class Resource implements angular.resource.IResource<Resource> {
     public static get: (params?: Object) => Resource;
     public static query: (params?: Object) => ResourceArray;
     public static remove: () => Resource;
-    public static save: () => Resource;
+    public static save: (params?: Object, postData?: Object) => Resource;
     public static delete: () => Resource;
     public $get: (params?: Object) => angular.IPromise<this>;
     public $query: (params?: Object) => angular.IPromise<angular.resource.IResourceArray<this>>;
@@ -243,7 +200,7 @@ export interface IResourceAnnotation {
 
 export function resource(): IClassAnnotationDecorator {
     return (target: any): any => {
-        function resourceClassFactory($resource: ResourceService, ...args: any[]): any {
+        let resourceClassFactory = <injectable>function ($resource: ResourceService, ...args: any[]): any {
             const newResource: ResourceClass = $resource(target.url, target.params, target.actions, target.options);
             attachInjects(extend(newResource, extend(target, newResource, {
                 prototype: extend(newResource.prototype, extend(target.prototype, {
@@ -255,9 +212,7 @@ export function resource(): IClassAnnotationDecorator {
             return newResource;
         }
         resourceClassFactory.$inject = (['$resource'])
-            .concat(target.$inject /* istanbul ignore next */ || [])
-            .concat(target.$staticInject /* istanbul ignore next */ || []);
-        //angular.module(moduleName).factory(className, resourceClassFactory);
+            .concat(target.$inject /* istanbul ignore next */ || []);
         return resourceClassFactory;
     };
 }
