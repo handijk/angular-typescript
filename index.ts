@@ -1,3 +1,5 @@
+declare let angular;
+
 const directiveProperties: string[] = [
     'compile',
     'controller',
@@ -33,17 +35,17 @@ function extend(dst, ...args) {
 
 
 function baseExtend(dst, objs, deep) {
-    for (var i = 0, ii = objs.length; i < ii; ++i) {
-        var obj = objs[i];
+    for (let i = 0, ii = objs.length; i < ii; ++i) {
+        let obj = objs[i];
         if (!angular.isObject(obj) && !angular.isFunction(obj)) continue;
-        var keys = Object.keys(obj);
-        for (var j = 0, jj = keys.length; j < jj; j++) {
-            var key = keys[j];
-            var descriptor = Object.getOwnPropertyDescriptor(obj, key);
+        let keys = Object.keys(obj);
+        for (let j = 0, jj = keys.length; j < jj; j++) {
+            let key = keys[j];
+            let descriptor = Object.getOwnPropertyDescriptor(obj, key);
             if (key !== 'prototype' && descriptor && (descriptor.writable || descriptor.configurable || descriptor.enumerable || descriptor.get || descriptor.set)) {
                 Object.defineProperty(dst, key, descriptor);
             } else {
-                var src = obj[key];
+                let src = obj[key];
                 if (deep && angular.isObject(src)) {
                     if (angular.isDate(src)) {
                         dst[key] = new Date(src.valueOf());
@@ -79,7 +81,7 @@ function instantiate(moduleName: string, name: string, mode: string): IClassAnno
 }
 
 export function attachInjects(target: any, ...args: any[]): any {
-    var injectSize = target.$inject.length;
+    let injectSize = target.$inject.length;
     (target.$inject || []).forEach((item: string, index: number) => {
         target.prototype['$' + item] = args[index];
     });
@@ -145,7 +147,7 @@ export interface IClassFactoryAnnotation {
 
 export function classFactory(): IClassAnnotationDecorator {
     return (target: any): any => {
-        var factory = <injectable>function (...args: any[]): any {
+        let factory = <injectable>function (...args: any[]): any {
             return attachInjects(target, ...args);
         }
         /* istanbul ignore else */
@@ -201,7 +203,7 @@ export interface IResourceAnnotation {
 export function resource(): IClassAnnotationDecorator {
     return (target: any): any => {
         let resourceClassFactory = <injectable>function ($resource: ResourceService, ...args: any[]): any {
-            const newResource: ResourceClass = $resource(target.url, target.params, target.actions, target.options);
+            const newResource: any = $resource(target.url, target.params, target.actions, target.options);
             attachInjects(extend(newResource, extend(target, newResource, {
                 prototype: extend(newResource.prototype, extend(target.prototype, {
                     /* tslint:disable:variable-name */
